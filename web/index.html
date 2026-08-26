@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GopherQueue | Concurrent Worker Pool & Task Engine</title>
+  <meta name="description" content="Dashboard en tiempo real para el motor de colas y worker pool concurrente en Go">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="top-header">
+      <div class="brand">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">GopherQueue <span>v1.0</span></h1>
+          <p class="brand-subtitle">High-Performance Concurrent Task Queue Engine</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="status-pill live-pill">
+          <span class="pulse-dot"></span> SISTEMA EN VIVO
+        </div>
+        <div class="worker-scaler">
+          <span class="label">Workers:</span>
+          <button id="btn-scale-down" class="btn-scale" title="Reducir Worker">-</button>
+          <span id="header-worker-count" class="worker-badge">4</span>
+          <button id="btn-scale-up" class="btn-scale" title="Añadir Worker">+</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Metrics Ribbon -->
+    <section class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-icon icon-queued">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+        </div>
+        <div class="metric-body">
+          <span class="metric-label">En Cola (Pendientes)</span>
+          <h3 id="stat-pending" class="metric-val">0</h3>
+        </div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-icon icon-running">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        </div>
+        <div class="metric-body">
+          <span class="metric-label">En Ejecución Activa</span>
+          <h3 id="stat-running" class="metric-val">0</h3>
+        </div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-icon icon-completed">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+        </div>
+        <div class="metric-body">
+          <span class="metric-label">Completadas con Éxito</span>
+          <h3 id="stat-completed" class="metric-val">0</h3>
+        </div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-icon icon-failed">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+        </div>
+        <div class="metric-body">
+          <span class="metric-label">Fallos / Reintentos</span>
+          <h3 id="stat-failed" class="metric-val">0 <small id="stat-retried">(0 r)</small></h3>
+        </div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-icon icon-speed">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+        </div>
+        <div class="metric-body">
+          <span class="metric-label">Latencia Promedio</span>
+          <h3 id="stat-duration" class="metric-val">0 ms</h3>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Workspace Layout -->
+    <main class="main-layout">
+      <!-- Left Column: Controls & Dispatcher -->
+      <aside class="control-panel">
+        <div class="card glass-card">
+          <div class="card-header">
+            <h2>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+              Encolar Nueva Tarea
+            </h2>
+          </div>
+          <form id="task-form" class="task-form">
+            <div class="form-group">
+              <label for="task-type">Tipo de Tarea</label>
+              <select id="task-type" class="form-control" required>
+                <option value="send_email">📧 send_email (Envío de Email)</option>
+                <option value="image_resize">🖼️ image_resize (Procesamiento Gráfico)</option>
+                <option value="generate_report">📊 generate_report (Cálculo Pesado)</option>
+                <option value="flaky_task">⚡ flaky_task (Test Reintentos con Backoff)</option>
+                <option value="quick_job" selected>⚡ quick_job (Tarea Rápida)</option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="task-priority">Prioridad</label>
+                <select id="task-priority" class="form-control">
+                  <option value="1">🔥 1 - ALTA (High)</option>
+                  <option value="2" selected>⚡ 2 - MEDIA (Medium)</option>
+                  <option value="3">🌱 3 - BAJA (Low)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="task-retries">Máx Reintentos</label>
+                <input type="number" id="task-retries" class="form-control" value="3" min="0" max="10">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="task-payload">Parámetros (JSON Payload)</label>
+              <textarea id="task-payload" class="form-control code-font" rows="3">{"user_id": 1042, "action": "demo"}</textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">
+              <span>🚀 Encolar Tarea Individual</span>
+            </button>
+          </form>
+
+          <hr class="divider">
+
+          <div class="batch-section">
+            <div class="batch-header">
+              <h3>⚡ Test de Carga Concurrente</h3>
+              <p>Envía múltiples tareas en paralelo para estresar el worker pool.</p>
+            </div>
+            <div class="batch-buttons">
+              <button class="btn btn-secondary" onclick="app.dispatchBatch(10, 'quick_job')">+10 Rápidas</button>
+              <button class="btn btn-secondary" onclick="app.dispatchBatch(50, 'quick_job')">+50 Lote</button>
+              <button class="btn btn-secondary" onclick="app.dispatchBatch(5, 'flaky_task')">+5 Reintentos</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Right Column: Workers & Real-Time Feed -->
+      <div class="dashboard-content">
+        <!-- Worker Grid -->
+        <section class="card glass-card">
+          <div class="card-header">
+            <h2>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+              Worker Pool Goroutines (<span id="worker-pool-title-count">0</span> Activos)
+            </h2>
+            <div class="worker-legend">
+              <span class="badge badge-idle">● IDLE</span>
+              <span class="badge badge-busy">● BUSY</span>
+            </div>
+          </div>
+          <div id="workers-grid" class="workers-grid">
+            <!-- Dynamic Worker Cards -->
+          </div>
+        </section>
+
+        <!-- Tasks Feed -->
+        <section class="card glass-card">
+          <div class="card-header">
+            <h2>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+              Historial de Tareas Recientes
+            </h2>
+            <div class="filter-group">
+              <select id="filter-status" class="form-control select-sm" onchange="app.refreshTasks()">
+                <option value="">Todas las tareas</option>
+                <option value="RUNNING">En ejecución</option>
+                <option value="PENDING">Pendientes</option>
+                <option value="COMPLETED">Completadas</option>
+                <option value="RETRYING">Reintentando</option>
+                <option value="FAILED">Fallidas</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="tasks-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Tipo</th>
+                  <th>Prioridad</th>
+                  <th>Estado</th>
+                  <th>Reintentos</th>
+                  <th>Duración</th>
+                  <th>Resultado / Info</th>
+                </tr>
+              </thead>
+              <tbody id="tasks-table-body">
+                <tr>
+                  <td colspan="7" class="empty-state">Cargando estado del motor...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
